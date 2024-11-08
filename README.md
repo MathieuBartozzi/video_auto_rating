@@ -39,7 +39,7 @@ pip install -r requirements.txt
 2. Ajoutez votre clé API OpenAI dans le fichier `.env` comme suit :
    ```plaintext
    OPENAI_API_KEY=YOUR_OPENAI_API_KEY
-
+   ```
 
 ## Utilisation
 
@@ -71,6 +71,7 @@ Pendant l'exécution, vous verrez des messages de progression similaires à ceux
 2024-11-08 22:07:30,408 - INFO - Extraction des noms et prénoms terminée.
 ...
 2024-11-08 22:11:06,075 - INFO - DataFrame exporté en fichier CSV : resultats_evaluation.csv ✅
+```
 
 ## Configuration des Logs
 
