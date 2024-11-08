@@ -1,2 +1,11 @@
+# Ignorer le dossier contenant les données
 data/
-notebooks/.env
+
+# Ignorer le dossier contenant les résultats et analyses
+outputs/
+
+# Ignorer le fichier de configuration avec la clé API
+.env
+
+# Ignorer le fichier CSV des résultats d'évaluation
+resultats_evaluation.csv
