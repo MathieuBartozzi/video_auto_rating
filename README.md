@@ -29,6 +29,7 @@ Ce projet est un pipeline automatisé de traitement de vidéos. Il utilise plusi
 Pour installer toutes les dépendances, exécutez :
 ```bash
 pip install -r requirements.txt
+```
 
 ## Configuration
 
@@ -40,13 +41,13 @@ pip install -r requirements.txt
    OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 
 
-
 ## Utilisation
 
 Pour exécuter le script, lancez la commande suivante :
 
 ```bash
 python traitement_videos.py
+```
 
 
 ## Le script effectue les étapes suivantes :
