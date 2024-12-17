@@ -9,3 +9,5 @@ outputs/
 
 # Ignorer le fichier CSV des résultats d'évaluation
 resultats_evaluation.csv
+final_resultats_evaluation.csv
+resultats.ipynb
