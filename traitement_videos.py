@@ -8,12 +8,12 @@ import numpy as np
 import cv2
 import mediapipe as mp
 import librosa
-import spacy
 import openai
 import warnings
-
 from sklearn.preprocessing import MinMaxScaler
 from dotenv import load_dotenv
+import re
+
 
 # Configuration du logging principal pour votre script
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -71,43 +71,45 @@ def compress_all_videos(input_folder, output_folder):
         os.makedirs(output_folder)
         logging.info(f"Dossier créé : {output_folder}")
 
-    video_formats = ('.mp4', '.avi', '.mov', '.mkv', '.MOV')
+    video_formats = ('.mp4', '.avi', '.mov', '.mkv', '.MOV','.MP4')
     for video_file in os.listdir(input_folder):
         if video_file.endswith(video_formats):
             input_video_path = os.path.join(input_folder, video_file)
             output_video_path = os.path.join(output_folder, video_file)
             logging.info(f"Traitement de la vidéo : {video_file}")
             compress_video(input_video_path, output_video_path)
+            os.remove(input_video_path)
+            logging.info(f"Vidéo originale supprimée : {input_video_path}")
 
-def extract_names_from_videos(video_folder):
-    """
-    Extrait les noms, prénoms et groupes à partir des noms de fichiers vidéo.
+# def extract_names_from_videos(video_folder):
+#     """
+#     Extrait les noms, prénoms et groupes à partir des noms de fichiers vidéo.
 
-    Args:
-        video_folder (str): Dossier contenant les vidéos.
+#     Args:
+#         video_folder (str): Dossier contenant les vidéos.
 
-    Returns:
-        pd.DataFrame: DataFrame contenant les noms, prénoms, groupes et noms de fichiers vidéo.
-    """
-    video_files = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.avi', '.mov', 'MOV'))]
-    data = []
-    for video in video_files:
-        base_name = os.path.splitext(video)[0]  # Enlever l'extension
-        if '_' in base_name:
-            parts = base_name.split('_')
-            if len(parts) == 3:
-                nom, prenom, groupe = parts  # Extraire Nom, Prénom et Groupe
-            else:
-                nom, prenom, groupe = parts[0], parts[1], ''  # Si le groupe est manquant
-        else:
-            nom, prenom, groupe = base_name, '', ''  # Si pas de séparateur '_'
+#     Returns:
+#         pd.DataFrame: DataFrame contenant les noms, prénoms, groupes et noms de fichiers vidéo.
+#     """
+#     video_files = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.avi', '.mov', 'MOV'))]
+#     data = []
+#     for video in video_files:
+#         base_name = os.path.splitext(video)[0]  # Enlever l'extension
+#         if '_' in base_name:
+#             parts = base_name.split('_')
+#             if len(parts) == 3:
+#                 nom, prenom, groupe = parts  # Extraire Nom, Prénom et Groupe
+#             else:
+#                 nom, prenom, groupe = parts[0], parts[1], ''  # Si le groupe est manquant
+#         else:
+#             nom, prenom, groupe = base_name, '', ''  # Si pas de séparateur '_'
 
-        data.append({'video_file': video, 'nom': nom, 'prénom': prenom, 'groupe': groupe})
+#         data.append({'video_file': video, 'nom': nom, 'prénom': prenom, 'groupe': groupe})
 
-    # Créer un DataFrame
-    df_videos = pd.DataFrame(data)
-    logging.info("Extraction des noms, prénoms et groupes terminée.")
-    return df_videos
+#     # Créer un DataFrame
+#     df_videos = pd.DataFrame(data)
+#     logging.info("Extraction des noms, prénoms et groupes terminée.")
+#     return df_videos
 
 def transcribe_video(whisper_model, video_path):
     """
@@ -219,20 +221,57 @@ def calculate_speech_rate(transcript, video_duration_minutes):
     else:
         return 0
 
-def extract_audio(video_path, output_audio_path):
-    """
-    Extrait l'audio d'une vidéo.
+# def extract_audio(video_path, output_audio_path):
+#     """
+#     Extrait l'audio d'une vidéo.
 
-    Args:
-        video_path (str): Chemin de la vidéo.
-        output_audio_path (str): Chemin du fichier audio de sortie.
-    """
+#     Args:
+#         video_path (str): Chemin de la vidéo.
+#         output_audio_path (str): Chemin du fichier audio de sortie.
+#     """
+#     if not os.path.exists(output_audio_path):
+#         command = f"ffmpeg -i {video_path} -q:a 0 -map a {output_audio_path} -y"
+#         subprocess.call(command, shell=True)
+#         logging.info(f"Audio extrait : {output_audio_path}")
+#     else:
+#         logging.info(f"Audio déjà existant : {output_audio_path}")
+
+def extract_audio(video_path, output_audio_path):
     if not os.path.exists(output_audio_path):
         command = f"ffmpeg -i {video_path} -q:a 0 -map a {output_audio_path} -y"
-        subprocess.call(command, shell=True)
-        logging.info(f"Audio extrait : {output_audio_path}")
+        result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode != 0 or not os.path.exists(output_audio_path):
+            logging.error(f"Erreur FFmpeg pour {video_path}: {result.stderr.decode()}")
+        else:
+            logging.info(f"Audio extrait : {output_audio_path}")
     else:
         logging.info(f"Audio déjà existant : {output_audio_path}")
+
+
+# def analyze_pitch_variation(audio_path):
+#     """
+#     Analyse les variations de pitch dans un fichier audio.
+
+#     Args:
+#         audio_path (str): Chemin du fichier audio.
+
+#     Returns:
+#         tuple: Moyenne et écart-type du pitch.
+#     """
+#     y, sr = librosa.load(audio_path)
+#     frame_length = 1024
+#     hop_length = 256
+#     pitches, _, _ = librosa.pyin(
+#         y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'),
+#         sr=sr, frame_length=frame_length, hop_length=hop_length
+#     )
+#     valid_pitches = pitches[~np.isnan(pitches)]
+#     if len(valid_pitches) == 0:
+#         return 0, 0
+#     pitch_mean = np.mean(valid_pitches)
+#     pitch_std = np.std(valid_pitches)
+#     logging.info(f"Analyse du pitch terminée pour : {audio_path}")
+#     return pitch_mean, pitch_std
 
 def analyze_pitch_variation(audio_path):
     """
@@ -244,20 +283,28 @@ def analyze_pitch_variation(audio_path):
     Returns:
         tuple: Moyenne et écart-type du pitch.
     """
-    y, sr = librosa.load(audio_path)
-    frame_length = 1024
-    hop_length = 256
-    pitches, _, _ = librosa.pyin(
-        y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'),
-        sr=sr, frame_length=frame_length, hop_length=hop_length
-    )
-    valid_pitches = pitches[~np.isnan(pitches)]
-    if len(valid_pitches) == 0:
-        return 0, 0
-    pitch_mean = np.mean(valid_pitches)
-    pitch_std = np.std(valid_pitches)
-    logging.info(f"Analyse du pitch terminée pour : {audio_path}")
-    return pitch_mean, pitch_std
+    if not os.path.exists(audio_path):
+        logging.error(f"Fichier audio manquant : {audio_path}")
+        return 0, 0  # Valeurs par défaut en cas d'erreur
+
+    try:
+        y, sr = librosa.load(audio_path)
+        frame_length = 1024
+        hop_length = 256
+        pitches, _, _ = librosa.pyin(
+            y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'),
+            sr=sr, frame_length=frame_length, hop_length=hop_length
+        )
+        valid_pitches = pitches[~np.isnan(pitches)]
+        if len(valid_pitches) == 0:
+            return 0, 0
+        pitch_mean = np.mean(valid_pitches)
+        pitch_std = np.std(valid_pitches)
+        logging.info(f"Analyse du pitch terminée pour : {audio_path}")
+        return pitch_mean, pitch_std
+    except Exception as e:
+        logging.error(f"Erreur lors de l'analyse du pitch pour {audio_path}: {e}")
+        return 0, 0  # Retourner des valeurs par défaut en cas d'erreur
 
 def calculate_movement_rate(total_movement, avg_visibility, key_landmarks):
     """
@@ -293,87 +340,6 @@ def calculate_movement_rate(total_movement, avg_visibility, key_landmarks):
     logging.info("Calcul du score de mouvement terminé.")
     return movement_rate
 
-# def evaluate_transcript_with_openai(transcript):
-#     """
-#     Évalue un transcript en utilisant l'API OpenAI.
-
-#     Args:
-#         transcript (str): Texte transcrit.
-
-#     Returns:
-#         dict: Scores obtenus de l'évaluation.
-#     """
-
-#     messages = [
-#         {"role": "system", "content": "You are a helpful assistant. Your task is to evaluate the following student transcript."},
-#         {
-#             "role": "user",
-#             "content": f"""
-#             Voici une transcription de présentation d'un étudiant :
-
-#             "{transcript}"
-
-#             1. Évaluez la qualité de l'introduction en fonction des critères suivants :
-#             - Présentation de l'entreprise ciblée et du poste visé,
-#             - Choix d'une compétence psychosociale (soft skill) requise par le poste, et justification de l'importance de cette compétence,
-#             - Formulation d'une question pertinente en lien avec cette compétence, en se mettant à la place du recruteur.
-#             Donnez un score sur 3 :
-#             - 1 pour la présentation de l'entreprise et du poste,
-#             - 1 pour le choix et la justification de la compétence,
-#             - 1 pour la question liée à la compétence.
-
-#             2. Vérifiez si la méthode STAR (Situation, Tâche, Action, Résultat) est respectée dans la réponse. Donnez un score sur 4 :
-#             - 1 pour la Situation (description du contexte),
-#             - 1 pour la Tâche (explication des responsabilités et objectifs),
-#             - 1 pour l'Action (détails des actions entreprises),
-#             - 1 pour le Résultat (résultats obtenus et démonstration de la compétence).
-
-#             3. Évaluez l'authenticité et la personnalisation de la réponse. Est-ce que l'étudiant donne des détails spécifiques montrant une réflexion personnelle ? Donnez un score sur 1 si la réponse semble authentique, 0 sinon.
-
-#             Fournissez uniquement les scores dans ce format :
-#             - introduction_score: X
-#             - intro_company_score: Y
-#             - intro_skill_score: Z
-#             - intro_question_score: W
-#             - star_situation_score: S
-#             - star_task_score: T
-#             - star_action_score: U
-#             - star_result_score: V
-#             - authenticity_score: A
-#             """
-#         }
-#     ]
-
-
-#     completion = openai.ChatCompletion.create(
-#     model="gpt-4o-mini",
-#     messages=messages,
-#     max_tokens=300,
-#     temperature=0
-# )
-
-
-
-#     response_text = completion.choices[0].message.content.strip()
-#     scores = {
-#         'introduction_score': 0,
-#         'intro_company_score': 0,
-#         'intro_skill_score': 0,
-#         'intro_question_score': 0,
-#         'star_situation_score': 0,
-#         'star_task_score': 0,
-#         'star_action_score': 0,
-#         'star_result_score': 0,
-#         'authenticity_score': 0
-#     }
-
-#     for line in response_text.split('\n'):
-#         for key in scores.keys():
-#             if key in line:
-#                 scores[key] = float(line.split(":")[1].strip())
-
-#     logging.info("Évaluation du transcript terminée avec OpenAI.")
-#     return scores
 
 def evaluate_transcript_with_openai(transcript):
     """
@@ -387,44 +353,46 @@ def evaluate_transcript_with_openai(transcript):
     """
 
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. Your task is to evaluate the following student transcript according to specific criteria."},
-        {
-            "role": "user",
-            "content": f"""
-            Voici une transcription de présentation d'un étudiant :
+            {"role": "system", "content": "You are a helpful assistant. Your task is to evaluate the following student transcript."},
+            {
+                "role": "user",
+                "content": f"""
+                Voici une transcription de présentation d'un étudiant :
 
-            "{transcript}"
+                "{transcript}"
 
-            Évaluez cette transcription selon les critères suivants :
+                1. Évaluez la qualité de l'introduction en fonction des critères suivants :
+            - Présentation de l'entreprise ciblée et du poste visé,
+            - Choix d'une compétence psychosociale (soft skill) requise par le poste, et justification de l'importance de cette compétence,
+            - Formulation d'une question pertinente en lien avec cette compétence, en se mettant à la place du recruteur.
 
-            1. Introduction (1 point) :
-               - La justification du choix de la compétence est-elle claire et convaincante ?
-               - La question inventée est-elle en lien direct avec la compétence choisie ?
-               Donnez un score sur 1 si les deux éléments sont respectés, sinon 0.
+            Donnez les 8 scores suivants (0 ou 1) :
 
-            2. Méthode STAR et Authenticité (1 point) :
-               - La réponse suit-elle les 4 étapes de la méthode STAR (Situation, Tâche, Action, Résultat) de manière fluide, sans confusion ou omissions majeures ?
-               - La réponse est-elle originale, personnalisée et authentique, avec des détails spécifiques et réalistes montrant que l’étudiant a réfléchi à son expérience, et non une réponse générique ?
-               Donnez un score sur 1 si les deux éléments sont respectés, sinon 0.
+            1. intro_company_score : Présentation claire de l'entreprise et du poste.
+            2. intro_skill_score : Justification du choix de la compétence.
+            3. intro_question_score : Pertinence de la question liée à la compétence.
 
-            3. Prise de parole et Communication (1 point) :
-               - Le langage corporel est-il approprié (gestes, contact visuel, posture et mouvements) pour soutenir et renforcer le discours sans être distrayant ?
-               - Le ton et le rythme de la voix sont-ils adaptés à la situation, régulier, ni trop rapide ni trop lent, permettant une bonne compréhension ?
-               Donnez un score sur 1 si les deux éléments sont respectés, sinon 0.
+            Vérifiez si la méthode STAR (Situation, Tâche, Action, Résultat) est respectée dans la réponse :
+            4. star_situation_score : Description correcte du contexte.
+            5. star_task_score : Explications des responsabilités et objectifs.
+            6. star_action_score : Détails des actions entreprises.
+            7. star_result_score : Résultats démontrant une maîtrise de la compétence.
 
-            De plus, identifiez la compétence mentionnée et la question posée par l'étudiant dans l'introduction, et fournissez-les dans ce format :
+            Évaluez l'authenticité et la personnalisation de la réponse :
+            8. authenticity_score : Réponse authentique et réflexion personnelle.
 
-            - competence: [nom de la compétence]
-            - question: [question posée]
-            Fournissez uniquement les scores et les informations dans ce format :
-            - introduction_score: X
-            - star_authenticity_score: Y
-            - communication_score: Z
-            - competence: [nom de la compétence]
-            - question: [question posée]
+            Fournissez les scores dans ce format (sans autres commentaires) :
+            - intro_company_score: X
+            - intro_skill_score: Y
+            - intro_question_score: Z
+            - star_situation_score: W
+            - star_task_score: S
+            - star_action_score: T
+            - star_result_score: U
+            - authenticity_score: V
             """
-        }
-    ]
+            }
+        ]
 
     # Appel de l'API OpenAI pour générer la complétion
     completion = openai.ChatCompletion.create(
@@ -437,13 +405,18 @@ def evaluate_transcript_with_openai(transcript):
     response_text = completion.choices[0].message.content.strip()
 
     # Initialiser le dictionnaire des scores
+    # Initialisation des scores
     scores = {
-        'introduction_score': 0,
-        'star_authenticity_score': 0,
-        'communication_score': 0,
-        'competence': "",
-        'question': ""
+        'intro_company_score': 0,
+        'intro_skill_score': 0,
+        'intro_question_score': 0,
+        'star_situation_score': 0,
+        'star_task_score': 0,
+        'star_action_score': 0,
+        'star_result_score': 0,
+        'authenticity_score': 0
     }
+
 
     # Extraire les scores et les informations de la réponse
     for line in response_text.split('\n'):
@@ -454,114 +427,386 @@ def evaluate_transcript_with_openai(transcript):
                 else:
                     scores[key] = float(line.split(":")[1].strip())
 
+
+    # for line in response_text.split('\n'):
+    #     line = line.strip()
+    #     for key in scores.keys():
+    #         if line.startswith(key):  # Vérifie si la ligne commence par la clé
+    #             try:
+    #                 # Extraction sécurisée de la valeur après ":"
+    #                 value = line.split(":", 1)[1].strip()
+    #                 scores[key] = int(value)  # Convertir en entier (0 ou 1 attendu)
+    #             except (IndexError, ValueError):
+    #                 logging.warning(f"Impossible de traiter la ligne : {line}")
     logging.info("Évaluation du transcript terminée avec OpenAI ✅.")
     return scores
 
 
+def clean_filename(filename):
+    """
+    Nettoie le nom de fichier en remplaçant les espaces et caractères spéciaux.
+    """
+    return re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+
+def rename_videos_and_update_csv(input_folder, csv_path):
+    """
+    Renomme les vidéos dans un dossier et met à jour le CSV avec les nouveaux noms.
+    """
+    # Charger le CSV
+    df_videos = pd.read_csv(csv_path, sep=";").copy()
+
+    updated_rows = 0
+    for i, row in df_videos.iterrows():
+        original_name = row['video_file']
+        original_path = os.path.join(input_folder, original_name)
+
+        # Vérifier si le fichier existe
+        if os.path.exists(original_path):
+            new_name = clean_filename(original_name)
+            new_path = os.path.join(input_folder, new_name)
+
+            # Renommer le fichier uniquement si nécessaire
+            if original_name != new_name:
+                os.rename(original_path, new_path)
+                logging.info(f"Renommé : {original_name} -> {new_name}")
+                df_videos.at[i, 'video_file'] = new_name
+                updated_rows += 1
+
+    # Sauvegarder le CSV mis à jour
+    if updated_rows > 0:
+        df_videos.to_csv(csv_path, sep=";", index=False)
+        logging.info(f"{updated_rows} noms de fichiers mis à jour dans le CSV.")
+    else:
+        logging.info("Aucun nom de fichier n'a été modifié.")
+
+def save_progress(df, path="data/df_videos_progress.csv"):
+    """
+    Sauvegarde progressive du DataFrame dans un fichier CSV.
+
+    Args:
+        df (pd.DataFrame): DataFrame à sauvegarder.
+        path (str): Chemin du fichier CSV de sauvegarde.
+    """
+    df.to_csv(path, index=False, sep=";", encoding='utf-8')
+    logging.info(f"Progression sauvegardée dans {path}")
+
+
+
+# def main():
+#     # Chemins des dossiers
+#     video_folder = "data/videos/"
+#     # video_folder = "data/videos_compressed/"
+#     audio_folder = "data/audios/"
+#     csv_path = "data/students.csv"
+#     progress_path = "data/df_videos_progress.csv"
+
+#         # Rechargement de la progression si elle existe
+#     if os.path.exists(progress_path):
+#         df_videos = pd.read_csv(progress_path, sep=";")
+#         logging.info("Progression existante rechargée.")
+#     else:
+#         df_videos = pd.read_csv(csv_path, sep=";")
+#         logging.info("Aucune sauvegarde existante. Chargement initial du CSV.")
+
+#     # Étape 1 : Extraction audio
+#     if 'audio_file' not in df_videos.columns:
+#         df_videos['audio_file'] = df_videos['video_file'].apply(
+#             lambda video_file: os.path.splitext(video_file)[0] + '.wav'
+#         )
+#         save_progress(df_videos, progress_path)  # Sauvegarde après étape
+#         logging.info("Étape d'extraction audio initialisée.")
+
+#     for video_file, audio_file in zip(df_videos['video_file'], df_videos['audio_file']):
+#         audio_path = os.path.join(audio_folder, audio_file)
+#         if not os.path.exists(audio_path):
+#             extract_audio(os.path.join(video_folder, video_file), audio_path)
+#         else:
+#             logging.info(f"Audio déjà existant : {audio_path}")
+
+#     save_progress(df_videos, progress_path)  # Sauvegarde après extraction audio
+
+#     # Étape 2 : Transcription avec Whisper
+#     if 'transcript' not in df_videos.columns:
+#         whisper_model = whisper.load_model("base")
+#         df_videos['transcript'] = df_videos['video_file'].apply(
+#             lambda video_file: transcribe_video(whisper_model, os.path.join(video_folder, video_file))
+#         )
+#         save_progress(df_videos, progress_path)
+#         logging.info("Étape de transcription terminée ✅.")
+
+#     # Étape 3 : Analyse des pitchs
+#     if 'pitch_mean' not in df_videos.columns or 'pitch_std' not in df_videos.columns:
+#         df_videos['pitch_mean'], df_videos['pitch_std'] = zip(*df_videos['audio_file'].apply(
+#             lambda audio_file: analyze_pitch_variation(os.path.join(audio_folder, audio_file))
+#         ))
+#         save_progress(df_videos, progress_path)
+#         logging.info("Étape d'analyse du pitch terminée ✅.")
+
+
+#     rename_videos_and_update_csv(video_folder, csv_path)
+
+
+#     # Compression des vidéos
+#     # logging.info("Début de la compression des vidéos.")
+#     # # compress_all_videos(video_folder, video_folder)
+#     # logging.info("Compression des vidéos terminée ✅.")
+
+#     # Extraction des noms
+#     # df_videos = extract_names_from_videos(output_video_folder)
+#     # Charger le fichier CSV
+#     if not os.path.exists(csv_path):
+#         logging.error(f"Le fichier {csv_path} est introuvable.")
+#         return
+
+#     # df_videos = pd.read_csv(csv_path,sep=";").copy()
+
+#     # Vérifiez si la colonne "video_file" existe dans le CSV
+#     if 'video_file' not in df_videos.columns:
+#         logging.error("La colonne 'video_file' est introuvable dans le fichier CSV.")
+#         return
+
+
+#     # Obtenir toutes les vidéos présentes dans le dossier
+#     video_files = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.MP4', '.avi', '.mov', '.mkv', '.MOV'))]
+
+#     # Vidéos attendues depuis le CSV
+#     videos_in_csv = df_videos['video_file'].tolist()
+
+#     # Identifier les vidéos manquantes
+#     missing_videos = set(videos_in_csv) - set(video_files)
+
+#     if missing_videos:
+#         logging.error(f"Les vidéos suivantes, référencées dans le fichier CSV, sont manquantes dans le dossier : {missing_videos}")
+#         raise FileNotFoundError("Certaines vidéos du CSV ne sont pas présentes dans le dossier. Arrêt du traitement.")
+
+#     # Filtrer les vidéos du CSV qui existent dans le dossier
+#     df_videos = df_videos[df_videos['video_file'].isin(video_files)]
+#     logging.info(f"{len(df_videos)} vidéos trouvées pour traitement.")
+
+
+#     # Transcription avec Whisper
+#     logging.info("Début de la transcription avec Whisper.")
+#     whisper_model_name = "base"
+#     whisper_model = whisper.load_model(whisper_model_name)
+#     df_videos['transcript'] = df_videos['video_file'].apply(
+#         lambda video_file: transcribe_video(whisper_model, os.path.join(video_folder, video_file))
+#     )
+#     logging.info("Transcription terminée ✅.")
+
+#     # Analyse non-verbale avec MediaPipe
+#     logging.info("Début de l'analyse non-verbale avec MediaPipe.")
+#     mp_pose = mp.solutions.pose
+#     pose = mp_pose.Pose()
+#     key_landmarks = {
+#         'left_wrist': 15,
+#         'right_wrist': 16,
+#         'left_elbow': 13,
+#         'right_elbow': 14,
+#         'left_shoulder': 11,
+#         'right_shoulder': 12
+#     }
+#     df_videos['pose_data'] = df_videos['video_file'].apply(
+#         lambda video_file: analyze_video_key_landmarks(
+#             os.path.join(video_folder, video_file), key_landmarks, pose)
+#     )
+#     df_videos['movements'], df_videos['visibilities'] = zip(*df_videos['pose_data'].apply(
+#         lambda pose_data: calculate_movement_and_visibility(pose_data, key_landmarks)
+#     ))
+#     logging.info("Analyse non-verbale terminée ✅ ")
+
+#     # Mesure du débit de parole
+#     logging.info("Calcul du débit de parole.")
+#     df_videos['speech_rate'] = df_videos.apply(
+#         lambda row: calculate_speech_rate(
+#             row['transcript'],
+#             get_video_duration(os.path.join(video_folder, row['video_file']))
+#         ),
+#         axis=1
+#     )
+#     logging.info("Calcul du débit de parole terminé ✅.")
+
+#     # Mesure du ton
+#     logging.info("Début de l'analyse du ton.")
+#     if not os.path.exists(audio_folder):
+#         os.makedirs(audio_folder)
+#         logging.info(f"Dossier créé : {audio_folder}")
+
+#     df_videos['audio_file'] = df_videos['video_file'].apply(
+#     lambda video_file: os.path.splitext(video_file)[0] + '.wav'
+#     )
+
+#     for video_file, audio_file in zip(df_videos['video_file'], df_videos['audio_file']):
+#         extract_audio(os.path.join(video_folder, video_file), os.path.join(audio_folder, audio_file))
+
+#     df_videos['pitch_mean'], df_videos['pitch_std'] = zip(*df_videos['audio_file'].apply(
+#         lambda audio_file: analyze_pitch_variation(os.path.join(audio_folder, audio_file))
+#     ))
+#     logging.info("Analyse du ton terminée ✅.")
+
+#     # Calcul des scores globaux
+#     logging.info("Calcul des scores globaux.")
+#     scaler = MinMaxScaler()
+
+#     # Score de mouvement
+#     df_videos['movement_score'] = df_videos.apply(
+#         lambda row: calculate_movement_rate(row['movements'], row['visibilities'], key_landmarks), axis=1
+#     )
+#     df_videos['movement_score'] = scaler.fit_transform(df_videos[['movement_score']])
+
+#     # Score de débit de parole
+#     df_videos['speech_score'] = scaler.fit_transform(df_videos[['speech_rate']])
+
+#     # Score de ton
+#     pitch_mean_normalized = scaler.fit_transform(df_videos[['pitch_mean']])
+#     pitch_std_normalized = scaler.fit_transform(df_videos[['pitch_std']])
+#     df_videos['tone_score'] = 0.5 * pitch_mean_normalized + 0.5 * pitch_std_normalized
+
+#     # Appliquer la fonction pour évaluer les transcripts
+#     df_videos = df_videos.join(
+#         df_videos['transcript'].apply(evaluate_transcript_with_openai).apply(pd.Series)
+#     )
+#     logging.info("Calcul des scores globaux terminé ✅.")
+
+
+#     # Affichage du DataFrame final
+#     print(df_videos.head())
+#     # Liste des colonnes à supprimer
+#     colonnes_a_supprimer = [
+#         "Pass/Fail", "Commentaire", "pose_data", "movements",'speech_rate',
+#         "visibilities", "audio_file", "pitch_mean", "pitch_std"
+#     ]
+
+#     # Suppression des colonnes
+#     df_videos_clean = df_videos.drop(columns=colonnes_a_supprimer, errors='ignore')
+
+#     # Exporter le DataFrame final en fichier CSV
+#     output_path = "resultats_evaluation.csv"
+#     df_videos_clean.to_csv(output_path, index=False, encoding='utf-8')
+
+#     logging.info(f"DataFrame exporté en fichier CSV : {output_path} ✅.")
+
+# if __name__ == "__main__":
+#     main()
+
 def main():
     # Chemins des dossiers
     video_folder = "data/videos/"
-    output_video_folder = "data/videos_compressed/"
     audio_folder = "data/audios/"
+    csv_path = "data/students.csv"
+    progress_path = "data/df_videos_progress.csv"
 
-    # Compression des vidéos
-    logging.info("Début de la compression des vidéos.")
-    compress_all_videos(video_folder, output_video_folder)
-    logging.info("Compression des vidéos terminée ✅.")
+    # Rechargement de la progression si elle existe
+    if os.path.exists(progress_path):
+        df_videos = pd.read_csv(progress_path, sep=";")
+        logging.info("Progression existante rechargée.")
+    else:
+        df_videos = pd.read_csv(csv_path, sep=";")
+        logging.info("Aucune sauvegarde existante. Chargement initial du CSV.")
 
-    # Extraction des noms
-    df_videos = extract_names_from_videos(output_video_folder)
+        # Ajout de la colonne audio_file au départ
+        df_videos['audio_file'] = df_videos['video_file'].apply(
+            lambda video_file: os.path.splitext(video_file)[0] + '.wav'
+        )
+        save_progress(df_videos, progress_path)
+     # Étape 0 : Gestion des vidéos manquantes
+    video_files = [f for f in os.listdir(video_folder) if f.endswith(('.mp4', '.MP4', '.avi', '.mov', '.mkv', '.MOV'))]
+    videos_in_csv = df_videos['video_file'].tolist()
 
-    # Transcription avec Whisper
-    logging.info("Début de la transcription avec Whisper.")
-    whisper_model_name = "base"
-    whisper_model = whisper.load_model(whisper_model_name)
-    df_videos['transcript'] = df_videos['video_file'].apply(
-        lambda video_file: transcribe_video(whisper_model, os.path.join(output_video_folder, video_file))
-    )
-    logging.info("Transcription terminée ✅.")
+    # Identifier les vidéos manquantes
+    missing_videos = set(videos_in_csv) - set(video_files)
 
-    # Analyse non-verbale avec MediaPipe
-    logging.info("Début de l'analyse non-verbale avec MediaPipe.")
-    mp_pose = mp.solutions.pose
-    pose = mp_pose.Pose()
-    key_landmarks = {
-        'left_wrist': 15,
-        'right_wrist': 16,
-        'left_elbow': 13,
-        'right_elbow': 14,
-        'left_shoulder': 11,
-        'right_shoulder': 12
-    }
-    df_videos['pose_data'] = df_videos['video_file'].apply(
-        lambda video_file: analyze_video_key_landmarks(
-            os.path.join(output_video_folder, video_file), key_landmarks, pose)
-    )
-    df_videos['movements'], df_videos['visibilities'] = zip(*df_videos['pose_data'].apply(
-        lambda pose_data: calculate_movement_and_visibility(pose_data, key_landmarks)
-    ))
-    logging.info("Analyse non-verbale terminée ✅ ")
+    if missing_videos:
+        logging.warning(f"Les vidéos suivantes, référencées dans le fichier CSV, sont manquantes : {missing_videos}")
+        # Supprimer les lignes correspondantes dans le DataFrame
+        df_videos = df_videos[~df_videos['video_file'].isin(missing_videos)]
+        save_progress(df_videos, progress_path)  # Sauvegarde après nettoyage
+        logging.info(f"{len(missing_videos)} vidéos manquantes supprimées du traitement.")
 
-    # Mesure du débit de parole
-    logging.info("Calcul du débit de parole.")
-    df_videos['speech_rate'] = df_videos.apply(
-        lambda row: calculate_speech_rate(
-            row['transcript'],
-            get_video_duration(os.path.join(video_folder, row['video_file']))
-        ),
-        axis=1
-    )
-    logging.info("Calcul du débit de parole terminé ✅.")
+    # Filtrer les vidéos existantes
+    df_videos = df_videos[df_videos['video_file'].isin(video_files)]
+    logging.info(f"{len(df_videos)} vidéos restantes pour traitement.")
 
-    # Mesure du ton
-    logging.info("Début de l'analyse du ton.")
-    if not os.path.exists(audio_folder):
-        os.makedirs(audio_folder)
-        logging.info(f"Dossier créé : {audio_folder}")
-
-    df_videos['audio_file'] = df_videos['video_file'].apply(
-        lambda video_file: video_file.replace('.mp4', '.wav')
-    )
-
+    # Étape 1 : Extraction audio
     for video_file, audio_file in zip(df_videos['video_file'], df_videos['audio_file']):
-        extract_audio(os.path.join(output_video_folder, video_file), os.path.join(audio_folder, audio_file))
+        audio_path = os.path.join(audio_folder, audio_file)
+        if not os.path.exists(audio_path):
+            extract_audio(os.path.join(video_folder, video_file), audio_path)
+    save_progress(df_videos, progress_path)
 
-    df_videos['pitch_mean'], df_videos['pitch_std'] = zip(*df_videos['audio_file'].apply(
-        lambda audio_file: analyze_pitch_variation(os.path.join(audio_folder, audio_file))
-    ))
-    logging.info("Analyse du ton terminée ✅.")
+    # Étape 2 : Transcription avec Whisper
+    if 'transcript' not in df_videos.columns:
+        whisper_model = whisper.load_model("base")
+        df_videos['transcript'] = df_videos['video_file'].apply(
+            lambda video_file: transcribe_video(whisper_model, os.path.join(video_folder, video_file))
+        )
+        save_progress(df_videos, progress_path)
 
-    # Calcul des scores globaux
-    logging.info("Calcul des scores globaux.")
+    # Étape 3 : Analyse des pitchs
+    if 'pitch_mean' not in df_videos.columns or 'pitch_std' not in df_videos.columns:
+        df_videos['pitch_mean'], df_videos['pitch_std'] = zip(*df_videos['audio_file'].apply(
+            lambda audio_file: analyze_pitch_variation(os.path.join(audio_folder, audio_file))
+        ))
+        save_progress(df_videos, progress_path)
+
+    # Étape 4 : Analyse non-verbale avec MediaPipe
+    if 'pose_data' not in df_videos.columns:
+        mp_pose = mp.solutions.pose
+        pose = mp_pose.Pose()
+        key_landmarks = {
+            'left_wrist': 15,
+            'right_wrist': 16,
+            'left_elbow': 13,
+            'right_elbow': 14,
+            'left_shoulder': 11,
+            'right_shoulder': 12
+        }
+        df_videos['pose_data'] = df_videos['video_file'].apply(
+            lambda video_file: analyze_video_key_landmarks(os.path.join(video_folder, video_file), key_landmarks, pose)
+        )
+        df_videos['movements'], df_videos['visibilities'] = zip(*df_videos['pose_data'].apply(
+            lambda pose_data: calculate_movement_and_visibility(pose_data, key_landmarks)
+        ))
+        save_progress(df_videos, progress_path)
+
+    # Étape 5 : Calcul des scores
+    if 'speech_rate' not in df_videos.columns:
+        df_videos['speech_rate'] = df_videos.apply(
+            lambda row: calculate_speech_rate(
+                row['transcript'], get_video_duration(os.path.join(video_folder, row['video_file']))
+            ),
+            axis=1
+        )
+        save_progress(df_videos, progress_path)
+
+    # Normalisation et calcul final des scores
     scaler = MinMaxScaler()
-    df_score = df_videos[['nom', 'prénom']].copy()
-
-    # Score de mouvement
-    df_score['movement_score'] = df_videos.apply(
+    df_videos['movement_score'] = df_videos.apply(
         lambda row: calculate_movement_rate(row['movements'], row['visibilities'], key_landmarks), axis=1
     )
-    df_score['movement_score'] = scaler.fit_transform(df_score[['movement_score']])
+    df_videos['movement_score'] = scaler.fit_transform(df_videos[['movement_score']])
+    df_videos['speech_score'] = scaler.fit_transform(df_videos[['speech_rate']])
 
-    # Score de débit de parole
-    df_score['speech_score'] = scaler.fit_transform(df_videos[['speech_rate']])
+    pitch_mean_norm = scaler.fit_transform(df_videos[['pitch_mean']])
+    pitch_std_norm = scaler.fit_transform(df_videos[['pitch_std']])
+    df_videos['tone_score'] = 0.5 * pitch_mean_norm + 0.5 * pitch_std_norm
 
-    # Score de ton
-    pitch_mean_normalized = scaler.fit_transform(df_videos[['pitch_mean']])
-    pitch_std_normalized = scaler.fit_transform(df_videos[['pitch_std']])
-    df_score['tone_score'] = 0.5 * pitch_mean_normalized + 0.5 * pitch_std_normalized
+    # Évaluation des transcripts avec OpenAI
+    if 'intro_company_score' not in df_videos.columns:  # Vérification si déjà fait
+        df_videos = df_videos.join(
+            df_videos['transcript'].apply(evaluate_transcript_with_openai).apply(pd.Series)
+        )
+        save_progress(df_videos, progress_path)
 
-    # Évaluation du transcript avec GPT
-    df_scores_expanded = df_videos['transcript'].apply(evaluate_transcript_with_openai)
-    df_scores_expanded = pd.json_normalize(df_scores_expanded)
-    df_score = pd.concat([df_score, df_scores_expanded], axis=1)
-    logging.info("Calcul des scores globaux terminé ✅.")
+    # Nettoyage des colonnes inutiles
+    colonnes_a_supprimer = [
+        "Pass/Fail", "Commentaire", "pose_data", "movements", "speech_rate",
+        "visibilities", "audio_file", "pitch_mean", "pitch_std"
+    ]
+    df_videos_clean = df_videos.drop(columns=colonnes_a_supprimer, errors='ignore')
 
-    # Affichage du DataFrame final
-    print(df_score.head())
-
-    # Exporter le DataFrame final en fichier CSV
+    # Export final
     output_path = "resultats_evaluation.csv"
-    df_score.to_csv(output_path, index=False, encoding='utf-8')
+    df_videos_clean.to_csv(output_path, index=False, encoding='utf-8')
     logging.info(f"DataFrame exporté en fichier CSV : {output_path} ✅.")
 
 if __name__ == "__main__":
